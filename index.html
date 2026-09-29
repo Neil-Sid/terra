@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Terra</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Martian+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/hud.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <header class="hud corner tl">
+    <h1>Terra <em>survey</em></h1>
+    <p class="sub">one planet · true scale · live weather</p>
+  </header>
+
+  <div class="hud compass" aria-hidden="true">
+    <div class="window"><div id="tape" class="tape"></div></div>
+    <b id="r-hdg" class="hdg">000</b>
+  </div>
+
+  <section class="hud corner tr readout">
+    <div class="place"><span>Place</span><b id="r-place">—</b></div>
+    <div><span>Local time</span><b id="r-clock">—</b></div>
+    <div><span>Sun</span><b id="r-sunel">—</b></div>
+    <div><span>Conditions</span><b id="r-cond">—</b></div>
+    <div><span>Air</span><b id="r-temp">—</b></div>
+  </section>
+
+  <section class="hud corner bl readout">
+    <div class="scale"><i id="r-scalebar"></i><b id="r-scale">—</b></div>
+    <div><span>Altitude</span><b id="r-alt">—</b></div>
+    <div><span>Above ground</span><b id="r-agl">—</b></div>
+    <div><span>Latitude</span><b id="r-lat">—</b></div>
+    <div><span>Longitude</span><b id="r-lon">—</b></div>
+    <div><span>Pitch</span><b id="r-pitch">—</b></div>
+    <div><span>Ground speed</span><b id="r-spd">—</b></div>
+  </section>
+
+  <details id="panel" class="hud corner br panel" open>
+    <summary><span class="label">Instruments</span></summary>
+    <div class="row">
+      <span class="label">Clock</span>
+      <div class="seg">
+        <button data-warp="0">❚❚</button><button data-warp="1">1×</button><button data-warp="60">1 min/s</button><button data-warp="900">15 min/s</button><button data-warp="3600">1 h/s</button>
+      </div>
+    </div>
+    <label class="row"><span class="label">Time of day</span><input id="tod" type="range" min="0" max="24" step="0.05"></label>
+    <label class="row"><span class="label">Cloud cover</span><input id="cover" type="range" min="-0.4" max="0.4" step="0.01"></label>
+    <label class="row"><span class="label">Storms</span><input id="storm" type="range" min="0" max="2" step="0.01"></label>
+    <label class="row"><span class="label">Exposure</span><input id="exposure" type="range" min="0.15" max="2" step="0.01"></label>
+    <div class="row jumps">
+      <button id="go-orbit">Orbit</button><button id="go-surface">Land here</button><button id="go-random">Somewhere else</button><button id="go-storm">Find a storm</button><button id="go-city" class="accent">Visit a city</button><button id="go-train" class="accent">Ride a train</button>
+    </div>
+    <p id="r-note" class="note"></p>
+    <p id="r-stats" class="stats"></p>
+  </details>
+
+  <footer class="hud help">
+    drag <i>grab</i> · right-drag <i>look</i> · wheel <i>zoom to cursor</i> · WASD <i>fly</i> · Q/E <i>down/up</i> · shift <i>×6</i> · V <i>cab / chase</i> · H <i>hide</i>
+  </footer>
+
+  <!-- start-up curtain (js/boot.js): the stage being built, then a small note until full detail is in -->
+  <div id="boot" class="boot" role="status" aria-live="polite">
+    <div class="card">
+      <h1>Terra <em>survey</em></h1>
+      <p class="stage">Loading</p>
+      <i class="bar"></i>
+    </div>
+    <p class="later"></p>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
