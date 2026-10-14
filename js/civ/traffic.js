@@ -461,7 +461,7 @@ function zoneOn(p, s, zh) {
 export class Traffic {
   constructor(ctx) {
     this.world = ctx.world
-    this.uniforms = { ...objUniforms(ctx.shared, ctx.FAR), uPixAngle: ctx.shared.uPixAngle }
+    this.uniforms = { ...objUniforms(ctx.shared), uPixAngle: ctx.shared.uPixAngle }
     this.material = new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: TRAFFIC_VERT, fragmentShader: TRAFFIC_FRAG, uniforms: this.uniforms })
     this.fleets = Object.fromEntries(Object.entries(KINDS).map(([k, kind]) => [k, new Fleet(kind, this.material, ctx.scene)]))
     this.spans = []          // { route, ri, s0, s1 } stretches of road near the camera

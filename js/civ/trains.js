@@ -146,7 +146,7 @@ export class Trains {
     this.nearRoutes = []
     this.material = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: TRAIN_VERT, fragmentShader: TRAIN_FRAG,
-      uniforms: { ...objUniforms(ctx.shared, ctx.FAR), uCamPos: { value: new THREE.Vector3() } },
+      uniforms: { ...objUniforms(ctx.shared), uCamPos: { value: new THREE.Vector3() } },
     })
     this.parts = SHAPES.map(shape => {
       const geo = buildShape(shape), n = MAX_CARS

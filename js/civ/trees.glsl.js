@@ -78,7 +78,7 @@ in vec3 iPos, iUp;                      // sea-level anchor relative to the rebu
 in vec2 iMisc;                          // rank (drawn while d < r0/sqrt(rank)), random 0..1
 ${compact ? 'in vec4 iPlace;' : ''}
 out vec3 vN, vRel, vLoc;
-out float vFragDepth, vAO, vTier;
+out float vAO, vTier;
 flat out vec3 vUp, vAlb, vSunC, vAmbC;
 flat out float vFade, vFol;
 void main(){
@@ -130,13 +130,12 @@ void main(){
   vSunC = objSun(U, 200.0)*(part.x > 0.5 ? mix(0.5, 1.0, part.y) : 0.4);      // neighbours shade trunks and lower crowns
   vAmbC = objAmbient(U);
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const TREE_FRAG = /* glsl */`${OBJ_COMMON}
 ${OBJ_LIGHT}
 in vec3 vN, vRel, vLoc;
-in float vFragDepth, vAO, vTier;
+in float vAO, vTier;
 flat in vec3 vUp, vAlb, vSunC, vAmbC;
 flat in float vFade, vFol;
 out vec4 outColor;
@@ -153,5 +152,4 @@ void main(){
   // foliage: wrapped light (leaves scatter), darker deep in the crown
   vec3 col = alb*(vSunC*clamp(ndl*0.8 + 0.15, 0.0, 1.0) + vAmbC*(0.75 + 0.25*dot(N, vUp)))*vAO;
   outColor = vec4(col, 1.0);
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`

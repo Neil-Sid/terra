@@ -11,14 +11,13 @@ import { TERRAIN } from './glsl/terrain.glsl.js'
 import { ATMO } from './glsl/atmo.glsl.js'
 import { BIOME } from './glsl/biome.glsl.js'
 
-// reads the terrain vertex shader's outputs vDir, vRel, vFragDepth and its uniforms
+// reads the terrain vertex shader's outputs vDir, vRel and its uniforms
 const PREVIEW_FRAG = /* glsl */`${GLSL_HEAD}
 uniform vec3 uSun;
-uniform float uPixAngle, uLogDepthFC;
+uniform float uPixAngle;
 uniform sampler2D uTransLUT;
 in vec3 vDir;
 in vec3 vRel;
-in float vFragDepth;
 out vec4 outColor;
 ${NOISE}
 ${TERRAIN}
@@ -51,10 +50,9 @@ void main(){
     col = alb*(sunC*max(dot(N, uSun), 0.0) + amb*(0.6 + 0.4*dot(N, p)));
   }
   outColor = vec4(col, 1.0);
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`
 
-// same vertex shader and uniforms as the full terrain material
+// same vertex shader and uniforms as the terrain's G-buffer pass
 export const previewMaterial = full => new THREE.RawShaderMaterial({
   glslVersion: THREE.GLSL3, vertexShader: full.vertexShader, fragmentShader: PREVIEW_FRAG, uniforms: full.uniforms,
 })

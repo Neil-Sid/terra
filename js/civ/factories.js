@@ -170,7 +170,7 @@ export class Factories {
     this.counts = [0, 0, 0, 0]
     this.lod = this.lodTarget = this.lodSet = 1   // range scale: drawn, wanted, the drawn set's
     this.reach = this.reachTarget = this.reachSet = SMOKE   // plume reach, the same way
-    this.uniforms = { ...objUniforms(ctx.shared, ctx.FAR), uAnchor: { value: new THREE.Vector3() }, uShift: { value: 0.3 }, uLod: { value: 1 } }
+    this.uniforms = { ...objUniforms(ctx.shared), uAnchor: { value: new THREE.Vector3() }, uShift: { value: 0.3 }, uLod: { value: 1 } }
     this.meshes = [unitBox(), unitTooth(), unitCylinder(16), unitSphere(14, 9)].map((g, shape) => this.makeMesh(g, shape))
     this.makeSmoke()
     this.stats = { rebuilds: 0, cpuMs: 0, sliceMs: 0, frames: 0, instances: 0, puffs: 0, lod: 1, gpuMs: [0, 0, 0, 0, 0] }
@@ -219,7 +219,7 @@ export class Factories {
     const at = (name, size, off) => geo.setAttribute(name, new THREE.InterleavedBufferAttribute(this.smokeBuf, size, off))
     at('iTop', 3, 0); at('iUp', 3, 3); at('iP', 4, 6)
     geo.instanceCount = 0
-    this.smokeU = { ...objUniforms(this.ctx.shared, this.ctx.FAR), uAnchor: this.uniforms.uAnchor, uWind: { value: new THREE.Vector3() }, uSmoke: { value: SMOKE } }
+    this.smokeU = { ...objUniforms(this.ctx.shared), uAnchor: this.uniforms.uAnchor, uWind: { value: new THREE.Vector3() }, uSmoke: { value: SMOKE } }
     const mat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: SMOKE_VERT, fragmentShader: SMOKE_FRAG, uniforms: this.smokeU,
       transparent: true, depthWrite: false, blending: THREE.CustomBlending,

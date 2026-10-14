@@ -19,7 +19,6 @@ in vec4 iFade;                 // range (m), time first drawn (s), sink depth (m
                                // inner range (far-tier block masses: they rise over [0.8, 1] of it while the buildings sink)
 out vec3 vRel, vN;
 out vec4 vFace;                // u (m along the face), v (m above base), face width, 1 on roofs
-out float vFragDepth;
 flat out vec3 vUp, vSunC, vAmbC;
 flat out vec4 vSize, vMisc;
 flat out float vFade;          // dithered opacity (new blocks, range edge)
@@ -52,14 +51,12 @@ void main(){
   vSize = iSize; vMisc = iMisc;
   vHt = vec2(max(-iMisc.x - 1.0, 0.0), iFade.z - 2.0);
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const FRAG = /* glsl */`${OBJ_COMMON}
 ${OBJ_LIGHT}
 in vec3 vRel, vN;
 in vec4 vFace;
-in float vFragDepth;
 flat in vec3 vUp, vSunC, vAmbC;
 flat in vec4 vSize, vMisc;
 flat in float vFade;
@@ -222,5 +219,4 @@ void main(){
     }
   }
   outColor = vec4(col + emit, 1.0);
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`

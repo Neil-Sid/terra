@@ -261,7 +261,7 @@ export class Buildings {
     const at = (name, size, off) => geo.setAttribute(name, new THREE.InterleavedBufferAttribute(this.buf, size, off))
     at('iPos', 3, 0); at('iUp', 3, 3); at('iEx', 3, 6); at('iSize', 4, 9); at('iMisc', 4, 13); at('iEy', 3, 17); at('iFade', 4, 20)
     geo.instanceCount = this.count = 0
-    this.uniforms = { ...objUniforms(this.ctx.shared, this.ctx.FAR), uAnchor: { value: new THREE.Vector3() }, uAct: { value: new THREE.Vector4() }, uLod: { value: 1 } }
+    this.uniforms = { ...objUniforms(this.ctx.shared), uAnchor: { value: new THREE.Vector3() }, uAct: { value: new THREE.Vector4() }, uLod: { value: 1 } }
     const mat = new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VERT, fragmentShader: FRAG, uniforms: this.uniforms })
     const mesh = new THREE.Mesh(geo, mat)
     mesh.frustumCulled = false

@@ -48,7 +48,7 @@ export class Stations {
     this.world = ctx.world
     this.byRoute = new Map()
     for (const st of list) { if (!this.byRoute.has(st.ri)) this.byRoute.set(st.ri, []); this.byRoute.get(st.ri).push(st) }
-    const uniforms = { ...objUniforms(ctx.shared, ctx.FAR), uCamPos: { value: new THREE.Vector3() }, uHour: { value: 0 } }
+    const uniforms = { ...objUniforms(ctx.shared), uCamPos: { value: new THREE.Vector3() }, uHour: { value: 0 } }
     this.uniforms = uniforms
     this.meshes = [boxGeometry(), vaultGeometry()].map((geo, k) => {
       const material = new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: STATION_VERT, fragmentShader: STATION_FRAG, uniforms, side: k ? THREE.DoubleSide : THREE.FrontSide })

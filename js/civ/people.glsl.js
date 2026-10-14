@@ -31,7 +31,7 @@ in float pm;                // part*8 + material
 in vec3 iRel, iFwd;         // anchor relative to the camera at height uHRef; heading (unit)
 in vec4 iMisc;              // walk phase, height (m), colour seed, pose (0 walk, 1 stand, 2 sit)
 out vec3 vN, vUp, vAlb;
-out float vH, vFragDepth;
+out float vH;
 
 // rotate about the lateral axis through height py; positive a moves points below the pivot forward (+z)
 vec3 swing(vec3 q, float py, float a){
@@ -85,18 +85,17 @@ void main(){
   vUp = up; vH = h + q.y;
   vAlb = albedo(mat, iMisc.z);
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const PEOPLE_FRAG = /* glsl */`${OBJ_COMMON}
 ${OBJ_LIGHT}
 in vec3 vN, vUp, vAlb;
-in float vH, vFragDepth;
+in float vH;
 out vec4 outColor;
 void main(){
   vec3 N = normalize(vN);
-  // at night the street lamps light people about as brightly as the pavement around them (see paint.glsl.js)
-  vec3 col = objLight(vAlb, N, vUp, vH) + vAlb*vec3(1.0, 0.72, 0.45)*(1.7 + 0.6*dot(N, vUp))*objNight(vUp);
+  // at night the street lamps overhead light people about as brightly as the pavement around them: CIV_POOL (0.3 x albedo)
+  // under a lamp, dark between (paint.glsl.js), so about a third of that on average, mostly on heads and shoulders
+  vec3 col = objLight(vAlb, N, vUp, vH) + vAlb*vec3(1.0, 0.72, 0.45)*(0.07 + 0.06*dot(N, vUp))*objNight(vUp);
   outColor = vec4(col, 1.0);
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`

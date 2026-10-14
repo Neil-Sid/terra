@@ -1,4 +1,4 @@
-// Frame pipeline: weather map -> terrain (HDR + log depth) -> sky/cloud composite -> precipitation.
+// Frame pipeline: weather map -> terrain (HDR + reversed float depth) -> sky/cloud composite -> precipitation.
 // Start-up: all shaders compile in parallel in the background while the world is built; the curtain lifts once
 // the full surface and every civ program are linked (a preview surface draws behind it until then; see boot.js).
 import * as THREE from 'three'
@@ -20,13 +20,15 @@ import { lensHints } from './lens-hints.js'
 const DEG = Math.PI / 180
 const HOLD_MAX = 75000       // ms: past this the curtain lifts onto the preview surface anyway (a very slow compile)
 const canvas = document.querySelector('#view')
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' })
+// reversed float depth spans 0.3 m to 2e8 m without shaders writing gl_FragDepth, so early-Z can skip hidden pixels
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', reversedDepthBuffer: true })
 renderer.autoClear = false
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
 const camera = new THREE.PerspectiveCamera(55, 1, 0.5, FAR)
 const compile = (scenes, label) => compileScenes(renderer, camera, scenes, label)
 
-// full-screen triangle used by every screen pass; each pass registers its scene for precompiling
+// full-screen triangle used by every screen pass; each pass registers its scene for precompiling (unless it compiles
+// with its own group, as the terrain's shading pass does)
 const quadVert = /* glsl */`
 in vec3 position;
 out vec2 vUv;
@@ -35,12 +37,12 @@ const quadGeo = new THREE.BufferGeometry()
 quadGeo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3))
 const quadCam = new THREE.OrthographicCamera()
 const passes = []
-function makeQuad(material) {
+function makeQuad(material, register = true) {
   const mesh = new THREE.Mesh(quadGeo, material)
   mesh.frustumCulled = false
   const scene = new THREE.Scene()
   scene.add(mesh)
-  passes.push(scene)
+  if (register) passes.push(scene)
   return { scene, camera: quadCam, mesh }
 }
 
@@ -53,25 +55,40 @@ const shared = {
 // compiles start longest first (the full terrain shader), then the sampler the world build waits on,
 // then what the first frame draws, then the probe
 const terrain = new Terrain(shared)
-const fullReady = compile([meshScene(terrain.material, terrain.geo)], 'terrain')
+const fullReady = compile([terrain.gScene, terrain.quad.scene], 'terrain')
 const sampler = new TerrainSampler(renderer, shared)
 const samplerReady = compile(passes.splice(0), 'sampler')
 const weather = new Weather(shared)
 const post = new Post(shared, makeCloudNoise(64))
 const precip = new Precip()
-const preview = previewMaterial(terrain.material)
+const preview = previewMaterial(terrain.gMaterial)
 const firstReady = compile([...passes.splice(0), precip.scene, meshScene(preview, terrain.geo)], 'preview, weather and post')
 const probe = new Probe(shared)
 const probeReady = compile(passes.splice(0), 'probe')
 
-const sceneRT = new THREE.WebGLRenderTarget(1, 1, {
-  type: THREE.HalfFloatType, depthBuffer: true,
-  depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType),
-})
+// the scene's HDR colour + depth, and the terrain's G-buffer (terrain.js render(): position and direction per pixel,
+// drawn into the scene's depth buffer)
+function sceneTargets() {
+  const scene = new THREE.WebGLRenderTarget(1, 1, {
+    type: THREE.HalfFloatType, depthBuffer: true,
+    depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType),
+  })
+  const gbuf = new THREE.WebGLRenderTarget(1, 1, {
+    count: 2, type: THREE.FloatType, depthTexture: scene.depthTexture,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false,
+  })
+  return { scene, gbuf }
+}
+// while the view moves fast (zooms, flights, dragging, flying) the scene renders at MOVE_SCALE of the resolution, and
+// at full resolution again SETTLE s after it stops: the motion hides the softness. Not while riding a train.
+const MOVE_SCALE = 0.7, MOVE_PX = 4, SETTLE = 0.25   // linear scale; screen pixels of motion per frame; seconds
+const sharp = sceneTargets(), soft = sceneTargets()
+let pixAngle = 0.001, movedAt = -1e9
+const lastQuat = new THREE.Quaternion(), lastPos = new THREE.Vector3()
 const geo = new GeoCamera(canvas)
 
 // Simulated clock: seconds since Jan 1. The sun moves; the planet frame stays fixed.
-const settings = { timeScale: 60, cover: 0, storm: 1, exposure: 0.55 }
+const settings = { timeScale: 60, cover: 0, storm: 1, exposure: 0.55, moveRes: false }   // moveRes: lower resolution while moving (off)
 const START_LON = 28 * DEG
 let simTime = 172 * 86400 + (10.5 - START_LON / DEG / 15) * 3600
 geo.flyTo({ lat: 14 * DEG, lon: START_LON, agl: 2.2e7 })
@@ -92,11 +109,11 @@ const hud = new Hud(settings, geo, clock, weather)
 function resize() {
   const w = innerWidth, h = innerHeight
   renderer.setSize(w, h, false)
-  const pr = renderer.getPixelRatio()
-  sceneRT.setSize(Math.round(w * pr), Math.round(h * pr))
+  const pr = renderer.getPixelRatio(), W = Math.round(w * pr), H = Math.round(h * pr)
+  for (const [t, k] of [[sharp, 1], [soft, MOVE_SCALE]]) for (const rt of [t.scene, t.gbuf]) rt.setSize(Math.round(W * k), Math.round(H * k))
   camera.aspect = w / h
   camera.updateProjectionMatrix()
-  shared.uPixAngle.value = 2 * Math.tan(camera.fov * DEG / 2) / (h * pr)
+  pixAngle = 2 * Math.tan(camera.fov * DEG / 2) / H
   geo.pixAngle = 2 * Math.tan(camera.fov * DEG / 2) / h
 }
 addEventListener('resize', resize)
@@ -119,7 +136,7 @@ async function start() {
   terrain.mesh.material = preview
   const civReady = compile([...passes.splice(0), terrain.scene], 'civ objects')
   probeReady.then(() => { on.probe = true })
-  fullReady.then(() => { terrain.mesh.material = terrain.material })
+  fullReady.then(() => { terrain.deferred = true })
   civReady.then(() => { on.civ = true; civ.prewarm() })
   Promise.all([probeReady, fullReady, civReady]).then(() => { on.all = true })
 
@@ -157,6 +174,13 @@ function frame(now) {
   camera.near = THREE.MathUtils.clamp(Math.min(geo.agl, clearance) * 0.25, 0.3, 2000)
   camera.updateProjectionMatrix()
   camera.updateMatrixWorld()
+  // screen motion this frame: the turn, plus the move relative to the height above the ground
+  const motion = (lastQuat.angleTo(geo.quat) + 0.5 * lastPos.distanceTo(geo.pos) / Math.max(geo.agl, 1)) / pixAngle
+  lastQuat.copy(geo.quat)
+  lastPos.copy(geo.pos)
+  if (settings.moveRes && motion > MOVE_PX && !geo.follow) movedAt = now
+  const rt = now - movedAt < SETTLE * 1000 ? soft : sharp
+  shared.uPixAngle.value = pixAngle * sharp.scene.height / rt.scene.height
 
   const sun = sunDirection(simTime)
   shared.uSun.value.copy(sun)
@@ -168,17 +192,17 @@ function frame(now) {
   terrain.update(geo.pos, camera, geo.groundSmooth)
   if (on.civ) civ.update({ camPos: geo.pos, camDir: geo.up, camera, sun, simTime, time: now / 1000, dt, simDt, geo, cpuMs, dest: geo.destination() })
 
-  renderer.setRenderTarget(sceneRT)
+  renderer.setRenderTarget(rt.scene)
   renderer.setClearColor(0x000000, 0)
   renderer.clear()
   // civ objects still compiling are left out of this frame (drawing them would wait for the compile)
   const hidden = on.civ ? [] : terrain.scene.children.filter(m => m !== terrain.mesh && m.visible)
   for (const m of hidden) m.visible = false
-  renderer.render(terrain.scene, camera)
+  terrain.render(renderer, camera, rt.scene, rt.gbuf)
   for (const m of hidden) m.visible = true
 
   precip.update(dt, now / 1000, geo, probe)
-  post.render(renderer, sceneRT, camera, geo, {
+  post.render(renderer, rt.scene, camera, geo, {
     exposure: settings.exposure, flash: precip.flash, wind,
     fog: precip.amount * 3e-4,
   })

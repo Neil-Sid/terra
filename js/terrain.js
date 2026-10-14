@@ -2,7 +2,7 @@
 // instance of a shared GRID x GRID patch. Heights come from the GPU height field, positions are
 // camera-relative so the planet stays precise down to the ground.
 import * as THREE from 'three'
-import { R, GRID, MAX_LEVEL, FAR, GLSL_HEAD } from './config.js'
+import { R, GRID, MAX_LEVEL, GLSL_HEAD } from './config.js'
 import { NOISE } from './glsl/noise.js'
 import { TERRAIN } from './glsl/terrain.glsl.js'
 import { ATMO } from './glsl/atmo.glsl.js'
@@ -12,7 +12,8 @@ import { BIOME } from './glsl/biome.glsl.js'
 import { FOREST } from './glsl/forest.glsl.js'
 import { WATER } from './glsl/water.glsl.js'
 
-const SPLIT = 2.1           // split while closer than SPLIT patch edges
+const SPLIT = 1.6           // split while closer than SPLIT patch edges: leaf vertex spacing then stays under camDist/100,
+                            // the vertex shader's height band limit, so a finer mesh would add no detail
 const MAX_INSTANCES = 4096
 const MOUNTAIN = 9000       // tallest terrain, for culling bounds
 const DETAIL_F = 0.125      // detail noise cells per metre (8 m cells, octaves down to ~3 cm)
@@ -79,7 +80,6 @@ in vec4 iCube;        // patch centre on the cube, patch size in face units
 in vec4 iRel;         // patch centre (sea level) minus camera, face index in w
 out vec3 vDir;
 out vec3 vRel;
-out float vFragDepth;
 const vec3 FU[6] = vec3[6](vec3(0,0,-1), vec3(0,0,1), vec3(1,0,0), vec3(1,0,0), vec3(1,0,0), vec3(-1,0,0));
 const vec3 FV[6] = vec3[6](vec3(0,1,0), vec3(0,1,0), vec3(0,0,-1), vec3(0,0,1), vec3(0,1,0), vec3(0,1,0));
 ${NOISE}
@@ -108,8 +108,16 @@ void main(){
   vDir = dir;
   vRel = rel;
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
+
+// G-buffer pass: the patches only store what each pixel's ground is; FRAG below then shades every visible pixel once
+// in a screen pass (no shading of ground that objects or hills hide, none of the 2x2-quad overshading small triangles cost)
+const GBUF_FRAG = /* glsl */`${GLSL_HEAD}
+in vec3 vDir;
+in vec3 vRel;
+layout(location = 0) out vec4 outRel;
+layout(location = 1) out vec4 outDir;
+void main(){ outRel = vec4(vRel, 1.0); outDir = vec4(vDir, 0.0); }`
 
 // Debug switches (material defines; shots/perf-views.js, notes/perf.md): NO_WATER, NO_BIOME, NO_FOREST, NO_FARM,
 // NO_CIVPAINT, NO_DETAIL, NO_RIVERS, and NO_CIV (no civ lookup in terrainCiv, vertex shader too)
@@ -117,13 +125,15 @@ const FRAG = /* glsl */`${GLSL_HEAD}
 #define NW 16
 #define DETAIL_F ${DETAIL_F.toFixed(4)}
 uniform vec3 uSun, uDetailOff;
-uniform float uTime, uPixAngle, uLogDepthFC;
+uniform float uTime, uPixAngle;
 uniform vec4 uWave[NW];       // travel direction (world, tangent near the camera), wavenumber (rad/m)
 uniform float uWavePh[NW];    // wave phase at the camera
 uniform sampler2D uTransLUT, uWeather;
-in vec3 vDir;
-in vec3 vRel;
-in float vFragDepth;
+uniform highp sampler2D uGRel, uGDir;    // G-buffer: camera-relative position (w = 1 on terrain), sea-level direction
+vec3 vDir, vRel;                          // the patch varyings, read from the G-buffer in main
+vec2 gDuvX, gDuvY;                        // screen derivatives of the map uv, for UV_DX / UV_DY in paint and farm
+#define UV_DX(uv) gDuvX
+#define UV_DY(uv) gDuvY
 out vec4 outColor;
 ${NOISE}
 ${TERRAIN}
@@ -225,12 +235,37 @@ ${WATER}
 ${BIOME}
 ${FOREST}
 
+// map uv (as civFarUV) and its screen derivative from the G-buffer neighbours: the smaller one-sided difference, so a
+// pixel on a silhouette takes its own surface's side as the rasterizer's helper pixels did
+vec2 eqUV(vec3 p){ return vec2(atan(p.x, p.z)*(0.5/PI) + 0.5, asin(clamp(p.y, -1.0, 1.0))/PI + 0.5); }
+vec2 gbufDuv(ivec2 px, ivec2 o, vec2 uv0){
+  ivec2 size = textureSize(uGRel, 0);
+  vec2 d = vec2(0.0);
+  float best = 1e30;
+  for (int s = -1; s <= 1; s += 2){
+    ivec2 q = px + o*s;
+    if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size)) || texelFetch(uGRel, q, 0).w == 0.0) continue;
+    vec2 dq = (eqUV(normalize(texelFetch(uGDir, q, 0).xyz)) - uv0)*float(s);
+    dq.x -= floor(dq.x + 0.5);
+    if (dot(dq, dq) < best){ best = dot(dq, dq); d = dq; }
+  }
+  return d;
+}
+
 void main(){
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  vec4 gr = texelFetch(uGRel, px, 0);
+  if (gr.w == 0.0) discard;                     // sky, or an object in front
+  vRel = gr.xyz;
+  vDir = texelFetch(uGDir, px, 0).xyz;
   vec3 p = normalize(vDir);
+  vec2 uv0 = eqUV(p);
+  gDuvX = gbufDuv(px, ivec2(1, 0), uv0);
+  gDuvY = gbufDuv(px, ivec2(0, 1), uv0);
   float dist = length(vRel);
   float foot = max(dist*uPixAngle, 1e-3);          // pixel footprint (m)
   float maxF = min(PLANET_R/(2.0*max(foot, 0.05)), 7e5);   // finer than ~9 m comes from detail()
-  vec4 um = civFarSample(p);                        // before any branching: needs derivatives
+  vec4 um = civFarSample(p);
   float farmD = farmMapSample(p);
   civSetRel(vRel);
   // the far painting's lookups (civLand for the town painting up to CIV_FAB1, civRivers below 20 km) ride on
@@ -423,7 +458,6 @@ void main(){
 #endif
   }
   outColor = vec4(col, 1.0);
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`
 
 const mod = (x, m) => ((x % m) + m) % m
@@ -443,16 +477,25 @@ export class Terrain {
     this.uniforms = {
       uSun: shared.uSun, uTime: shared.uTime, uPixAngle: shared.uPixAngle,
       uTransLUT: shared.uTransLUT, uWeather: shared.uWeather, ...shared.civ,
-      uLogDepthFC: { value: 2.0 / Math.log2(FAR + 1) },
       uDetailOff: { value: new THREE.Vector3() },
       uWave: { value: WAVES.map(() => new THREE.Vector4()) },
       uWavePh: { value: WAVES.map(() => 0) },
+      uGRel: { value: null }, uGDir: { value: null },
     }
-    this.material = new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VERT, fragmentShader: FRAG, uniforms: this.uniforms })
+    // all three terrain programs share these uniforms: the civ modules add theirs to the material whose source has
+    // forestPaint / farmPaint (the shading pass), which sits on the mesh until main.js swaps in the preview
+    this.material = new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: shared.quadVert, fragmentShader: FRAG, uniforms: this.uniforms, depthTest: false, depthWrite: false })
+    this.quad = shared.makeQuad(this.material, false)
+    this.gMaterial = new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VERT, fragmentShader: GBUF_FRAG, uniforms: this.uniforms })
+    this.gMesh = new THREE.Mesh(geo, this.gMaterial)
+    this.gMesh.frustumCulled = false
+    this.gScene = new THREE.Scene().add(this.gMesh)
     this.mesh = new THREE.Mesh(geo, this.material)
     this.mesh.frustumCulled = false
+    this.mesh.renderOrder = 1     // the preview: after buildings, trees etc., so early-Z skips ground they cover
     this.scene = new THREE.Scene()
     this.scene.add(this.mesh)
+    this.deferred = false
     this.geo = geo
     this.frustum = new THREE.Frustum()
     this.sphere = new THREE.Sphere()
@@ -461,9 +504,35 @@ export class Terrain {
     this.anchor = null
   }
 
+  // Objects first, then the ground in two steps: the G-buffer pass (depth-tested against the objects in the depth
+  // buffer it shares with target), then the full shading once per visible pixel; smoke and lamp beams last, over
+  // the shaded ground. Until the full shader links (deferred = false) the preview surface draws directly.
+  render(renderer, camera, target, gbuf) {
+    if (!this.deferred) return renderer.render(this.scene, camera)
+    const objs = this.scene.children.filter(m => m.visible && m !== this.mesh)
+    const glass = objs.filter(m => m.material.transparent), solid = objs.filter(m => !m.material.transparent)
+    this.mesh.visible = false
+    for (const m of glass) m.visible = false
+    renderer.render(this.scene, camera)
+    renderer.setRenderTarget(gbuf)
+    renderer.clear(true, false, false)
+    renderer.render(this.gScene, camera)
+    this.uniforms.uGRel.value = gbuf.textures[0]
+    this.uniforms.uGDir.value = gbuf.textures[1]
+    renderer.setRenderTarget(target)
+    renderer.render(this.quad.scene, this.quad.camera)
+    if (glass.length) {
+      for (const m of solid) m.visible = false
+      for (const m of glass) m.visible = true
+      renderer.render(this.scene, camera)
+      for (const m of solid) m.visible = true
+    }
+    this.mesh.visible = true
+  }
+
   // camPos: planet-centred camera position (doubles); ground: terrain height under the camera
   update(camPos, camera, ground) {
-    this.frustum.setFromProjectionMatrix(this.m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
+    this.frustum.setFromProjectionMatrix(this.m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem, camera.reversedDepth)
     const d = camPos.length()
     this.cam = camPos
     this.camDir = [camPos.x / d, camPos.y / d, camPos.z / d]
@@ -505,6 +574,11 @@ export class Terrain {
     return false
   }
 
+  dist2(n) {
+    const [dx, dy, dz] = n.dir, g = this.gr, c = this.cam
+    return (dx * g - c.x) ** 2 + (dy * g - c.y) ** 2 + (dz * g - c.z) ** 2
+  }
+
   visit(n) {
     const [dx, dy, dz] = n.dir, [cx, cy, cz] = this.camDir
     const theta = Math.acos(Math.max(-1, Math.min(1, dx * cx + dy * cy + dz * cz)))
@@ -514,7 +588,8 @@ export class Terrain {
     if (!this.inFrustum(n, rx, ry, rz, Math.min(MOUNTAIN, 0.7 * centre + 30))) return
     const dist = centre - n.edge * 0.71
     if (n.level < MAX_LEVEL && dist < n.edge * SPLIT) {
-      for (const c of n.split()) this.visit(c)
+      // nearest child first: patches then draw roughly front to back, so early-Z rejects ground hidden behind hills
+      for (const c of n.split().sort((a, b) => this.dist2(a) - this.dist2(b))) this.visit(c)
       return
     }
     if (this.count >= MAX_INSTANCES) return

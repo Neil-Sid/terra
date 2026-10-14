@@ -1,6 +1,6 @@
 // Shared shader pieces for 3D civilisation objects (buildings, vehicles, trains, people) so they are
 // lit exactly like the terrain and depth-sort against it. Vertex shaders position everything relative
-// to the camera (the camera sits at the origin) and write log depth like terrain.js.
+// to the camera (the camera sits at the origin); depth is the renderer's reversed float depth, no gl_FragDepth.
 import { GLSL_HEAD } from '../config.js'
 import { NOISE } from '../glsl/noise.js'
 import { TERRAIN } from '../glsl/terrain.glsl.js'
@@ -12,7 +12,7 @@ ${NOISE}
 ${TERRAIN}
 ${ATMO}
 uniform vec3 uSun;
-uniform float uTime, uLogDepthFC;
+uniform float uTime;
 uniform sampler2D uTransLUT, uWeather;
 `
 
@@ -40,9 +40,9 @@ float objSpec(vec3 N, vec3 V, float rough){
 `
 
 // uniforms every object material must supply
-export function objUniforms(shared, FAR) {
+export function objUniforms(shared) {
   return {
     uSun: shared.uSun, uTime: shared.uTime, uTransLUT: shared.uTransLUT, uWeather: shared.uWeather,
-    uLogDepthFC: { value: 2.0 / Math.log2(FAR + 1) }, ...shared.civ,
+    ...shared.civ,
   }
 }

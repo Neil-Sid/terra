@@ -154,7 +154,7 @@ export class Trees {
     // candidate and read the placement texture; once its readback arrives the compact meshes (one kind each, the
     // placement in iPlace) take over, so no vertex work goes to empty candidates or other kinds.
     this.buf = new THREE.InstancedInterleavedBuffer(new Float32Array(MAX_INST * 8), 8).setUsage(THREE.DynamicDrawUsage)
-    this.uniforms = { ...objUniforms(ctx.shared, ctx.FAR), ...this.paint, uPlace: { value: this.place.texture }, uAnchor: { value: new THREE.Vector3() } }
+    this.uniforms = { ...objUniforms(ctx.shared), ...this.paint, uPlace: { value: this.place.texture }, uAnchor: { value: new THREE.Vector3() } }
     const shapes = [conifer, broadleaf, palm]
     this.full = shapes.map((shape, kind) => this.makeMesh(shape(), kind, this.buf, false))
     this.compact = shapes.map((shape, kind) => this.makeMesh(shape(), kind, new THREE.InstancedInterleavedBuffer(new Float32Array(MAX_INST * 12), 12).setUsage(THREE.DynamicDrawUsage), true))

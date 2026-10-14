@@ -149,7 +149,7 @@ export class Bridges {
     this.anchor = new THREE.Vector3()
     this.time = 0
     this.stats = { crossings: 0, drawn: 0, instances: 0 }
-    this.uniforms = { ...objUniforms(ctx.shared, ctx.FAR), uAnchor: { value: new THREE.Vector3() }, uAnchorRel: { value: new THREE.Vector3() } }
+    this.uniforms = { ...objUniforms(ctx.shared), uAnchor: { value: new THREE.Vector3() }, uAnchorRel: { value: new THREE.Vector3() } }
     const geo = boxGeometry()
     const attr = (name, size) => { const a = new THREE.InstancedBufferAttribute(new Float32Array(MAX * size), size); geo.setAttribute(name, a); return a }
     this.attrs = { A: attr('iA', 3), B: attr('iB', 3), X: attr('iBox', 4), M: attr('iMisc', 4), C: attr('iArch', 4) }

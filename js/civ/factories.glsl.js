@@ -22,7 +22,6 @@ in vec3 iEy;                   // local y axis (not always square to iEx: sheare
 in vec3 iFade;                 // range (m), time first drawn (s), sink depth (m: into the ground, roof parts into the roof)
 out vec3 vRel, vN;
 out vec4 vFace;                // u (m along the face), v (m above base), face width, kind (0 wall, 1 roof, 2 glazing)
-out float vFragDepth;
 flat out vec3 vUp, vSunC, vAmbC, vSize;
 flat out vec4 vMisc;
 flat out vec3 vExt;            // iExt, local y sign of the face
@@ -60,7 +59,6 @@ void main(){
   vSunC = objSun(U, 100.0);
   vAmbC = objAmbient(U);
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const FRAG = /* glsl */`${OBJ_COMMON}
@@ -68,7 +66,6 @@ ${OBJ_LIGHT}
 ${INDUSTRY_COLOURS}
 in vec3 vRel, vN;
 in vec4 vFace;
-in float vFragDepth;
 flat in vec3 vUp, vSunC, vAmbC, vSize;
 flat in vec4 vMisc;
 flat in vec3 vExt;
@@ -189,7 +186,6 @@ void main(){
   // floodlights wash the lower walls at night
   if (kind != 1) emit += alb*sodium*night*0.05*exp(-max(v, 0.0)/6.0);
   outColor = vec4(col + emit, 1.0);
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`
 
 export const SMOKE_VERT = /* glsl */`${OBJ_COMMON}
@@ -201,7 +197,6 @@ in vec3 position;              // quad corner (-1..1)
 in vec3 iTop, iUp;             // chimney mouth rel. anchor, vertical
 in vec4 iP;                    // seed, mouth diameter, type (0 smoke, 1 steam, 2 aviation light), phase
 out vec2 vUV;
-out float vFragDepth;
 flat out float vA, vType, vSeed;
 flat out vec3 vSunC, vAmbC, vUp;
 void main(){
@@ -228,14 +223,12 @@ void main(){
   vAmbC = objAmbient(iUp);
   vUV = position.xy;
   gl_Position = projectionMatrix*viewMatrix*vec4(c + (camR*position.x + camU*position.y)*size, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const SMOKE_FRAG = /* glsl */`${OBJ_COMMON}
 ${OBJ_LIGHT}
 uniform mat4 viewMatrix;
 in vec2 vUV;
-in float vFragDepth;
 flat in float vA, vType, vSeed;
 flat in vec3 vSunC, vAmbC, vUp;
 out vec4 outColor;
@@ -257,5 +250,4 @@ void main(){
     vec3 col = alb*(vSunC*(0.35 + 0.65*max(dot(n, uSun), 0.0) + 0.8*fwd) + vAmbC*1.5);
     outColor = vec4(col*a, a);
   }
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`

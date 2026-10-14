@@ -82,7 +82,7 @@ export class People {
 
     this.material = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: PEOPLE_VERT, fragmentShader: PEOPLE_FRAG,
-      uniforms: { ...objUniforms(ctx.shared, ctx.FAR), uDirs: { value: this.dirTex }, uHeights: { value: this.heights.texture }, uHRef: { value: 0 } },
+      uniforms: { ...objUniforms(ctx.shared), uDirs: { value: this.dirTex }, uHeights: { value: this.heights.texture }, uHRef: { value: 0 } },
     })
     this.mesh = new THREE.Mesh(g, this.material)
     this.mesh.frustumCulled = false
@@ -181,7 +181,7 @@ export class People {
     if (!this.count) return
 
     this.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
-    this.frustum.setFromProjectionMatrix(this.m)
+    this.frustum.setFromProjectionMatrix(this.m, camera.coordinateSystem, camera.reversedDepth)
     const planes = this.frustum.planes, rec = this.records, gr = R + hRef
     const rel = this.attr.iRel.array, fwd = this.attr.iFwd.array, misc = this.attr.iMisc.array, dirs = this.dirTex.image.data
     const outside = (x, y, z, margin) => { for (const pl of planes) if (pl.normal.x * x + pl.normal.y * y + pl.normal.z * z + pl.constant < -margin) return true; return false }

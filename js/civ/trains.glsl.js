@@ -15,7 +15,7 @@ in vec2 iMisc;              // lead unit (1 = headlights, 0 = tail lights), seed
 in vec2 iH;                 // deck heights at the rear / front bogie (m; < -1e8 = on the rail bed)
 out vec3 vN, vLN, vUp, vRel, vLocal, vCol;
 flat out vec2 vMisc;        // flat: the seed must not wobble between pixels
-out float vPart, vH, vFragDepth;
+out float vPart, vH;
 void main(){
   if (aPart > 5.5 && iMisc.x < 0.5) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; }   // beams only ahead of lead units
   vec3 mid = 0.5*(iA + iB);
@@ -31,19 +31,17 @@ void main(){
   vN = ax*normal.x + left*normal.y + up*normal.z;
   vLN = normal; vUp = up; vRel = rel; vLocal = position; vCol = iCol; vMisc = iMisc; vPart = aPart; vH = h + position.z;
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const TRAIN_FRAG = /* glsl */`${OBJ_COMMON}
 ${OBJ_LIGHT}
 in vec3 vN, vLN, vUp, vRel, vLocal, vCol;
 flat in vec2 vMisc;
-in float vPart, vH, vFragDepth;
+in float vPart, vH;
 out vec4 outColor;
 float band(float x, float a, float b){ return step(a, x)*step(x, b); }
 float inside(vec2 p, vec2 lo, vec2 hi){ return step(lo.x, p.x)*step(p.x, hi.x)*step(lo.y, p.y)*step(p.y, hi.y); }
 void main(){
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
   vec3 N = normalize(vN), V = normalize(-vRel), L = vLocal;
   float night = objNight(vUp), side = step(0.7, abs(vLN.y));
   int part = int(vPart + 0.5);

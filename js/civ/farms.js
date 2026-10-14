@@ -167,7 +167,7 @@ export class Farms {
     this.count = 0
     this.time = 0
 
-    this.objUniforms = { ...objUniforms(ctx.shared, ctx.FAR), uAnchor: { value: new THREE.Vector3() }, uPixAngle: ctx.shared.uPixAngle }
+    this.objUniforms = { ...objUniforms(ctx.shared), uAnchor: { value: new THREE.Vector3() }, uPixAngle: ctx.shared.uPixAngle }
     this.meshes = [gableGeometry(), siloGeometry()].map((g, shape) => this.makeMesh(g, shape))
   }
 

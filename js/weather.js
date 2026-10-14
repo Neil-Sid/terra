@@ -1,5 +1,5 @@
 // Global weather: an equirectangular map (cover, storm type, precipitation, lightning) rebuilt on
-// the GPU each frame from advected noise, latitude circulation bands and a set of simulated cyclones.
+// the GPU every few frames from advected noise, latitude circulation bands and a set of simulated cyclones.
 import * as THREE from 'three'
 import { R, GLSL_HEAD } from './config.js'
 import { NOISE } from './glsl/noise.js'
@@ -109,6 +109,9 @@ export class Weather {
       },
     })
     this.quad = shared.makeQuad(this.material)
+    this.drawnAt = NaN
+    this.drawnKey = ''
+    this.wait = 0
     for (let i = 0; i < 8; i++) this.spawn(i < 3, Math.random())
   }
 
@@ -143,6 +146,14 @@ export class Weather {
   render(renderer, simTime, dt, settings) {
     this.step(dt)
     this.renderer = renderer   // kept for debug readback from the console
+    // a texel is ~20 km and the clouds drift far less than that per frame: redraw every 4th frame, at once when the
+    // sliders change or the clock jumps (time of day slider), never while the clock is paused
+    const key = `${settings.cover},${settings.storm}`, same = key === this.drawnKey
+    if (same && simTime === this.drawnAt) return
+    if (same && ++this.wait < 4 && Math.abs(simTime - this.drawnAt) < 900) return
+    this.wait = 0
+    this.drawnAt = simTime
+    this.drawnKey = key
     const u = this.material.uniforms
     u.uT.value = simTime % (86400 * 4000)
     u.uCover.value = settings.cover

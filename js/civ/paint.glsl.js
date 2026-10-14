@@ -7,6 +7,11 @@ import { LANES } from './spec.js'
 
 const f = v => v.toFixed(2)
 export const CIV_PAINT = /* glsl */`
+// screen derivatives of the map uv; the terrain's deferred pass (terrain.js) supplies them from G-buffer neighbours
+#ifndef UV_DX
+#define UV_DX(uv) dFdx(uv)
+#define UV_DY(uv) dFdy(uv)
+#endif
 uniform sampler2D uUrbanMap;
 #define CIV_HW_LANES vec2(${f(LANES[0][0])}, ${f(LANES[0][1])})
 #define CIV_LAMP 30.0            // street lamp spacing (m)
@@ -404,7 +409,7 @@ CivOut civPaint(vec3 alb, Civ c, float foot, float night, float warm){
 vec2 civFarUV(vec3 p){ return vec2(atan(p.x, p.z)*(0.5/PI) + 0.5, asin(clamp(p.y, -1.0, 1.0))/PI + 0.5); }
 vec4 civFarSample(vec3 p){
   vec2 uv = civFarUV(p);
-  vec2 dx = dFdx(uv), dy = dFdy(uv);
+  vec2 dx = UV_DX(uv), dy = UV_DY(uv);
   dx.x -= floor(dx.x + 0.5); dy.x -= floor(dy.x + 0.5);
   return textureGrad(uUrbanMap, uv, dx, dy);
 }
@@ -412,6 +417,7 @@ vec4 civFarSample(vec3 p){
 float civNearCity(vec3 p){ return smoothstep(0.003, 0.06, textureLod(uUrbanMap, civFarUV(p), 3.0).r); }
 // r = urban cover (dense at big city cores), g = highway, b = rail, a = road; foot = pixel size (m)
 void civFar(inout vec3 alb, inout vec3 emit, vec4 um, float farmD, vec3 p, float foot, float w, float night){
+  if (w <= 0.0) return;                             // everything below is weighted by w (0 below CIV_FAB0)
   float core = smoothstep(0.3, 0.9, um.r);
   vec3 sn = vec3(0.0);                               // snoise at 3e3, 1.2e4 and 600 per unit radius, one call site
   for (int k = 0; k < civN(3); k++) sn = vec3(sn.yz, snoise(p*(k == 0 ? 3.0e3 : k == 1 ? 1.2e4 : 600.0)));

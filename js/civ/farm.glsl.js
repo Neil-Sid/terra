@@ -10,6 +10,11 @@ export const FARM_CELL = 4500           // district grid cell (m)
 export const FARM_RANGE = 6000          // farmsteads within this distance; they dither out from 0.6 to 0.9 of it
 export const FARM_REG0 = 0.56           // farming-country threshold on the regional noise (sets the global farmed share)
 export const FARM_PAINT = /* glsl */`
+// screen derivatives of the map uv; the terrain's deferred pass (terrain.js) supplies them from G-buffer neighbours
+#ifndef UV_DX
+#define UV_DX(uv) dFdx(uv)
+#define UV_DY(uv) dFdy(uv)
+#endif
 uniform sampler2D uFarmMap;     // r = regional settlement density (0..1), ~40 km texels, mipmapped
 uniform sampler2D uFarmTerr;    // r = mountain mask, g = roughness/1.5 (farms.js, from the sampler; ~40 km texels)
 uniform float uFarmDay, uFarmOn; // day of the year, 1 = paint fields (farms.js)
@@ -28,7 +33,7 @@ float farmBank(Civ c){ return 15.0 + 0.3*c.riverHalf; }
 vec2 farmTerr;                  // (mountain mask, roughness) at p, set by farmMapSample()
 float farmMapSample(vec3 p){
   vec2 uv = vec2(atan(p.x, p.z)*(0.5/PI) + 0.5, asin(clamp(p.y, -1.0, 1.0))/PI + 0.5);
-  vec2 dx = dFdx(uv), dy = dFdy(uv);
+  vec2 dx = UV_DX(uv), dy = UV_DY(uv);
   dx.x -= floor(dx.x + 0.5); dy.x -= floor(dy.x + 0.5);
   farmTerr = textureGrad(uFarmTerr, uv, dx, dy).rg*vec2(1.0, 1.5);
   return textureGrad(uFarmMap, uv, dx, dy).r;
@@ -539,7 +544,6 @@ in vec4 iSize;                 // box: length, depth, wall, roof rise; silo: rad
 in vec4 iMisc;                 // kind, seed, foundation depth, load time (s)
 out vec3 vRel, vN;
 out vec4 vFace;                // u along the face (m), height (m), face width (m), 1 roof / -1 gable end / 0 side
-out float vFragDepth;
 flat out vec3 vUp, vSunC, vAmbC;
 flat out vec4 vSize, vMisc;
 void main(){
@@ -568,7 +572,6 @@ void main(){
   vAmbC = objAmbient(U);
   vSize = iSize; vMisc = iMisc;
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const FARM_FRAG = /* glsl */`${OBJ_COMMON}
@@ -576,7 +579,6 @@ ${OBJ_LIGHT}
 uniform float uPixAngle;
 in vec3 vRel, vN;
 in vec4 vFace;
-in float vFragDepth;
 flat in vec3 vUp, vSunC, vAmbC;
 flat in vec4 vSize, vMisc;
 out vec4 outColor;
@@ -640,5 +642,4 @@ void main(){
   vec3 col = alb*(vSunC*max(dot(N, uSun), 0.0) + vAmbC*(0.6 + 0.4*dot(N, vUp)));
   col += vSunC*objSpec(N, V, rough)*metal;
   outColor = vec4(col + emit, 1.0);
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`

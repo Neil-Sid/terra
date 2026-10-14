@@ -12,7 +12,7 @@ in vec4 iBox;               // y0, y1 (m, +y = left of A->B), z0, z1 (m above th
 in vec3 iMisc;              // piece kind, station seed, building side
 out vec3 vN, vLN, vUp, vRel, vLocal, vSize, vUnit;
 flat out vec3 vMisc;        // flat: the seed must not wobble between pixels
-out float vH, vFragDepth;
+out float vH;
 void main(){
   vec3 c = mix(iA, iB, position.x);
   vec3 up = normalize(uCamPos + c);
@@ -29,7 +29,6 @@ void main(){
   vN = ax*n.x + left*n.y + up*n.z;
   vLN = normal; vUp = up; vRel = rel; vLocal = local; vSize = size; vUnit = position; vMisc = iMisc; vH = h + local.z;
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const STATION_FRAG = /* glsl */`${OBJ_COMMON}
@@ -37,7 +36,7 @@ ${OBJ_LIGHT}
 uniform float uHour;        // local time (h) for the clock hands
 in vec3 vN, vLN, vUp, vRel, vLocal, vSize, vUnit;
 flat in vec3 vMisc;
-in float vH, vFragDepth;
+in float vH;
 out vec4 outColor;
 float band(float x, float a, float b){ return step(a, x)*step(x, b); }
 // distance-based hand of a clock: angle a (clockwise from 12), length l, half width w
@@ -47,7 +46,6 @@ float hand(vec2 p, float a, float l, float w){
   return band(t, -0.1*l, l)*step(abs(p.x*d.y - p.y*d.x), w);
 }
 void main(){
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
   vec3 N = normalize(vN), V = normalize(-vRel), L = vLocal, n = vLN;
   if (dot(N, V) < 0.0) { N = -N; n = -n; }          // vaults are seen from inside too
   float night = objNight(vUp), top = step(0.5, n.z), wall = 1.0 - step(0.5, abs(n.z));

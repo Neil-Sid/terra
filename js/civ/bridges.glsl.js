@@ -16,7 +16,6 @@ in vec4 iMisc;                     // dz (height change A->B), kind, seed (+4096
 in vec4 iArch;                     // x of A along the bridge, arch opening half span (0 none), spring height, rise
 out vec3 vN, vLN, vUp, vRel, vLocal, vSize, vUnit;
 flat out vec4 vMisc, vArch;
-out float vFragDepth;
 void main(){
   vec3 c = mix(iA, iB, position.x);
   vec3 up = normalize(uAnchor + c);
@@ -31,14 +30,12 @@ void main(){
   vN = ax*n.x + left*n.y + up*n.z;
   vLN = normal; vUp = up; vRel = rel; vLocal = local; vSize = size; vUnit = position; vMisc = iMisc; vArch = iArch;
   gl_Position = projectionMatrix*viewMatrix*vec4(rel, 1.0);
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const bridgeFrag = range => /* glsl */`${OBJ_COMMON}
 ${OBJ_LIGHT}
 in vec3 vN, vLN, vUp, vRel, vLocal, vSize, vUnit;
 flat in vec4 vMisc, vArch;
-in float vFragDepth;
 out vec4 outColor;
 float band(float x, float a, float b){ return step(a, x)*step(x, b); }
 // antialiased line of half width w around 0 (aa = metres per pixel)
@@ -46,7 +43,6 @@ float line(float x, float w, float aa){ return clamp((w - abs(x))/aa + 0.5, 0.0,
 float dash(float s, float on, float period, float aa){ return mix(step(fract(s/period), on/period), on/period, smoothstep(0.3, 1.0, aa*4.0/period)); }
 float ign(vec2 p){ return fract(52.9829189*fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 void main(){
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
   float dist = length(vRel);
   // dithered in over 0.8 s once built and out towards the range
   float fade = smoothstep(${range.toFixed(1)}, ${(0.8 * range).toFixed(1)}, dist)*clamp((uTime - vMisc.w)/0.8, 0.0, 1.0);

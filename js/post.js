@@ -1,8 +1,8 @@
-// Full-screen composite: sky, aerial perspective, volumetric clouds, sun, stars -> HDR,
+// Full-screen composite: sky, aerial perspective, volumetric clouds (marched at half resolution), sun, stars -> HDR,
 // then bloom, auto-exposure and tone mapping to the screen.
-// Reads the terrain colour + log depth, so everything is resolved per pixel along the view ray.
+// Reads the terrain colour + reversed float depth, so everything is resolved per pixel along the view ray.
 import * as THREE from 'three'
-import { GLSL_HEAD, FAR } from './config.js'
+import { GLSL_HEAD } from './config.js'
 import { NOISE } from './glsl/noise.js'
 import { ATMO } from './glsl/atmo.glsl.js'
 import { CLOUDS } from './glsl/clouds.glsl.js'
@@ -32,21 +32,74 @@ void main(){
 }`
 
 // Terrain and clouds are lit with pi*E (Lambert without the 1/pi), so sky radiance gets the same factor.
-const FRAG = /* glsl */`${GLSL_HEAD}
-#define SKY_E (SUN_I*PI)
-#define SUN_R 0.00465
-#define NIGHT_SKY 2.5e-4
-uniform sampler2D uColor, uDepth, uTransLUT, uWeather, uBlue;
+// what the cloud pass and the composite share: uniforms, the view ray through a pixel, the scene distance along it
+const VIEW = /* glsl */`
+uniform sampler2D uDepth, uTransLUT, uWeather, uBlue;
 uniform sampler3D uNoise;
 uniform mat4 uInvProj;
 uniform mat3 uCamRot;
 uniform vec3 uCamPos, uSun, uWind;
-uniform float uCamAlt, uTime, uLogFar, uFlash, uPixAngle, uFog;
+uniform float uCamAlt, uTime, uFlash, uPixAngle, uFog;
+uniform vec2 uDepthCD;      // reversed-Z projection terms: view distance = d/(depth + c)
 in vec2 vUv;
-out vec4 outColor;
 ${NOISE}
 ${ATMO}
 ${CLOUDS}
+// unproject on the near plane: the far plane is ill-conditioned when near is tiny (far/near ~ 1e9); rv in view space
+vec3 viewRay(vec2 uv, out vec3 rv){
+  vec4 vp = uInvProj*vec4(uv*2.0 - 1.0, 1.0, 1.0);
+  rv = normalize(vp.xyz/vp.w);
+  return normalize(uCamRot*rv);
+}
+float sceneDist(float dz, vec3 rv){ return dz > 0.0 ? uDepthCD.y/(dz + uDepthCD.x)/max(-rv.z, 1e-4) : 1e12; }   // 1e12: sky
+// blue-noise ray offset: fine grain with no visible pattern (IGN left diagonal hatching in cloud edges)
+float rayJitter(){ return (texelFetch(uBlue, ivec2(gl_FragCoord.xy) & 63, 0).r*255.0 + 0.5)/256.0; }
+`
+
+// Clouds at half resolution (the march is most of the composite's cost, and clouds are soft): in-scatter and
+// transmittance, plus the scene distance the march stopped at and the cloud distance, for the depth-aware upsampling
+const CLOUD_FRAG = /* glsl */`${GLSL_HEAD}
+${VIEW}
+layout(location = 0) out vec4 outCl;
+layout(location = 1) out vec4 outT;
+void main(){
+  // the farthest of the 2x2 depths below: across an edge this sample takes the far side (sky, distant ground);
+  // pixels on the near side find a neighbour like them in the composite, or march their own clouds
+  ivec2 q = ivec2(gl_FragCoord.xy)*2, m = textureSize(uDepth, 0) - 1;
+  float dz = min(min(texelFetch(uDepth, min(q, m), 0).r, texelFetch(uDepth, min(q + ivec2(1, 0), m), 0).r),
+                 min(texelFetch(uDepth, min(q + ivec2(0, 1), m), 0).r, texelFetch(uDepth, min(q + 1, m), 0).r));
+  vec3 rv, rd = viewRay(vUv, rv);
+  float tScene = sceneDist(dz, rv), tCloud;
+  outCl = marchClouds(uCamPos, rd, dot(uCamPos, rd), tScene, rayJitter(), tCloud);
+  outT = vec4(tScene, tCloud, 0.0, 0.0);
+}`
+
+const FRAG = /* glsl */`${GLSL_HEAD}
+#define SKY_E (SUN_I*PI)
+#define SUN_R 0.00465
+#define NIGHT_SKY 2.5e-4
+uniform sampler2D uColor, uCloud, uCloudT;
+${VIEW}
+out vec4 outColor;
+
+// the half-resolution clouds here: the 4 nearest samples, bilinear, among those marched to about this pixel's scene
+// distance (10 %); with none such (the near side of an edge, a thin pole against the sky) the pixel marches its own
+bool halfClouds(float tScene, out vec4 cl, out float tCloud){
+  ivec2 n = textureSize(uCloud, 0);
+  vec2 x = vUv*vec2(n) - 0.5, f = fract(x);
+  ivec2 i0 = ivec2(floor(x));
+  cl = vec4(0.0); tCloud = 0.0;
+  float ws = 0.0;
+  for (int k = 0; k < 4; k++){
+    ivec2 o = ivec2(k & 1, k >> 1), q = clamp(i0 + o, ivec2(0), n - 1);
+    vec2 tt = texelFetch(uCloudT, q, 0).rg;
+    float w = max((o.x == 1 ? f.x : 1.0 - f.x)*(o.y == 1 ? f.y : 1.0 - f.y), 1e-3)*step(abs(log(tt.x/tScene)), 0.1);
+    cl += w*texelFetch(uCloud, q, 0); tCloud += w*tt.y; ws += w;
+  }
+  if (ws <= 0.0) return false;
+  cl /= ws; tCloud /= ws;
+  return true;
+}
 
 // point stars on a jittered 3D grid, drawn as pixel-sized gaussians (checks the 8 nearest cells)
 vec3 stars(vec3 rd){
@@ -94,21 +147,18 @@ vec3 sunDisk(vec3 rd){
 float warp(float f, int mode){ return mode == 1 ? f*f : mode == 2 ? 1.0 - (1.0 - f)*(1.0 - f) : f; }
 
 void main(){
-  // unproject on the near plane: the far plane is ill-conditioned when near is tiny (far/near ~ 1e9)
-  vec4 vp = uInvProj*vec4(vUv*2.0 - 1.0, -1.0, 1.0);
-  vec3 rv = normalize(vp.xyz/vp.w);
-  vec3 rd = normalize(uCamRot*rv);
+  vec3 rv, rd = viewRay(vUv, rv);
   vec3 ro = uCamPos;
   float b = dot(ro, rd);
   float dz = texture(uDepth, vUv).r;
-  bool hit = dz < 1.0;
-  float tScene = hit ? (exp2(dz*uLogFar) - 1.0)/max(-rv.z, 1e-4) : 1e12;
+  bool hit = dz > 0.0;
+  float tScene = sceneDist(dz, rv);
   vec3 scene = texture(uColor, vUv).rgb;
-  // blue-noise ray offset: fine grain with no visible pattern (IGN left diagonal hatching in cloud edges)
-  float jitter = (texelFetch(uBlue, ivec2(gl_FragCoord.xy) & 63, 0).r*255.0 + 0.5)/256.0;
+  float jitter = rayJitter();
 
   float tCloud;
-  vec4 cl = marchClouds(ro, rd, b, tScene, jitter, tCloud);
+  vec4 cl;
+  if (!halfClouds(tScene, cl, tCloud)) cl = marchClouds(ro, rd, b, tScene, jitter, tCloud);
 
   float mu = dot(rd, uSun);
   vec3 bg = scene;
@@ -312,8 +362,10 @@ export class Post {
       uTransLUT: shared.uTransLUT, uWeather: shared.uWeather, uSun: shared.uSun, uTime: shared.uTime, uPixAngle: shared.uPixAngle,
       uInvProj: { value: new THREE.Matrix4() }, uCamRot: { value: new THREE.Matrix3() },
       uCamPos: { value: new THREE.Vector3() }, uCamAlt: { value: 0 }, uWind: { value: new THREE.Vector3() },
-      uLogFar: { value: Math.log2(FAR + 1) }, uFlash: { value: 0 }, uFog: { value: 0 }, uBlue: { value: blueNoise() },
+      uDepthCD: { value: new THREE.Vector2() }, uFlash: { value: 0 }, uFog: { value: 0 }, uBlue: { value: blueNoise() },
+      uCloud: { value: null }, uCloudT: { value: null },
     }
+    this.clouds = raw(CLOUD_FRAG, this.u)
     this.quad = raw(FRAG, this.u)
     this.down = raw(DOWN_FRAG, { uSrc: { value: null }, uExp: { value: null }, uTexel: { value: new THREE.Vector2() }, uFirst: { value: 0 } })
     this.up = raw(UP_FRAG, { uSrc: { value: null }, uTexel: { value: new THREE.Vector2() } }, { blending: THREE.AdditiveBlending, transparent: true })
@@ -325,7 +377,9 @@ export class Post {
     const exp = () => new THREE.WebGLRenderTarget(1, 1, { type: THREE.FloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter })
     this.exp = [exp(), exp()]
     this.hdr = null
+    this.cloud = null
     this.levels = []
+    this.sizes = new Map()   // targets per scene size: main.js switches between full and reduced resolution
     this.lutReady = false
     this.last = performance.now()
     Post.last = this   // debug handle: (await import('/js/post.js')).Post.last
@@ -337,11 +391,26 @@ export class Post {
 
   resize(w, h) {
     if (this.hdr && this.hdr.width === w && this.hdr.height === h) return
-    this.hdr?.dispose()
-    this.levels.forEach(l => l.dispose())
-    this.hdr = this.target(w, h)
-    this.levels = []
-    for (let i = 1; i <= LEVELS; i++) this.levels.push(this.target(Math.max(1, w >> i), Math.max(1, h >> i)))
+    const key = `${w}x${h}`
+    let s = this.sizes.get(key)
+    if (!s) {
+      s = { hdr: this.target(w, h), levels: [] }
+      s.cloud = new THREE.WebGLRenderTarget(Math.ceil(w / 2), Math.ceil(h / 2), {
+        count: 2, type: THREE.FloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+      })
+      for (let i = 1; i <= LEVELS; i++) s.levels.push(this.target(Math.max(1, w >> i), Math.max(1, h >> i)))
+      this.sizes.set(key, s)
+      // keep the two sizes in use (full and reduced); a window resize retires the older ones
+      for (const [k, o] of this.sizes) {
+        if (this.sizes.size <= 2) break
+        if (k === key) continue
+        for (const t of [o.hdr, o.cloud, ...o.levels]) t.dispose()
+        this.sizes.delete(k)
+      }
+    }
+    Object.assign(this, s)
+    this.u.uCloud.value = s.cloud.textures[0]
+    this.u.uCloudT.value = s.cloud.textures[1]
   }
 
   pass(renderer, quad, target) {
@@ -359,12 +428,14 @@ export class Post {
     u.uColor.value = sceneRT.texture
     u.uDepth.value = sceneRT.depthTexture
     u.uInvProj.value.copy(camera.projectionMatrixInverse)
+    u.uDepthCD.value.set(camera.projectionMatrix.elements[10], camera.projectionMatrix.elements[14])
     u.uCamRot.value.setFromMatrix4(camera.matrixWorld)
     u.uCamPos.value.copy(cam.pos)
     u.uCamAlt.value = cam.altitude
     u.uFlash.value = opts.flash
     u.uFog.value = opts.fog
     u.uWind.value.copy(opts.wind)
+    this.pass(renderer, this.clouds, this.cloud)
     this.pass(renderer, this.quad, this.hdr)
 
     // bloom pyramid; level 0 is exposed and capped

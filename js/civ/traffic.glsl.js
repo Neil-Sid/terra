@@ -17,7 +17,7 @@ in vec4 iA, iB, iC, iD;     // (anchor - camera, length scale) (unit dir, height
 in vec2 iE;                 // bridge deck height (m; < -1e8 on the ground) and its grade along the heading
 out vec3 vN, vRel, vUp, vAlb;
 out vec2 vCorner;
-out float vH, vGlow, vWin, vFragDepth;
+out float vH, vGlow, vWin;
 flat out int vPart;
 void main(){
   vec3 up = normalize(iB.xyz), info;
@@ -47,14 +47,13 @@ void main(){
   vWin = part == ${PART.GLASS} ? win*night : 0.0;
   vN = n; vRel = rel; vUp = up; vH = t.x + lp.y; vCorner = aInfo.yz; vPart = part;
   gl_Position = projectionMatrix*vp;
-  vFragDepth = 1.0 + gl_Position.w;
 }`
 
 export const TRAFFIC_FRAG = /* glsl */`${OBJ_COMMON}
 ${OBJ_LIGHT}
 in vec3 vN, vRel, vUp, vAlb;
 in vec2 vCorner;
-in float vH, vGlow, vWin, vFragDepth;
+in float vH, vGlow, vWin;
 flat in int vPart;
 out vec4 outColor;
 void main(){
@@ -73,5 +72,4 @@ void main(){
         + vec3(1.0, 0.8, 0.55)*vWin*0.35;
   }
   outColor = vec4(col, 1.0);
-  gl_FragDepth = log2(vFragDepth)*uLogDepthFC*0.5;
 }`
