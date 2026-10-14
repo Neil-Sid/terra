@@ -15,6 +15,7 @@ import { TerrainSampler } from './civ/sampler.js'
 import { buildWorld, civUniforms } from './civ/world.js'
 import { Civilisation } from './civ/index.js'
 import { previewMaterial, meshScene, compile as compileScenes, stage, hold, heldFor, creep, live, done } from './boot.js'
+import { lensHints } from './lens-hints.js'
 
 const DEG = Math.PI / 180
 const HOLD_MAX = 75000       // ms: past this the curtain lifts onto the preview surface anyway (a very slow compile)
@@ -124,6 +125,7 @@ async function start() {
 
   // handle for the console and the headless harness; ready = full detail compiled and drawn
   window.terra = { geo, settings, probe, terrain, weather, world, sampler, shared, civ, renderer, camera, get simTime() { return simTime }, set simTime(v) { simTime = v }, R, ready: false, boot: {} }
+  lensHints(window.terra)   // names and real bounds for three-lens; no effect on rendering
   await stage('Compiling the surface shader')
   await firstReady
   last = performance.now()
